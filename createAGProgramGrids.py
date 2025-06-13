@@ -2,6 +2,7 @@ from openpyxl import Workbook
 from openpyxl.worksheet.page import PageMargins, PrintOptions, PrintPageSetup
 from openpyxl.styles import PatternFill, Border, Side, Alignment, Protection, Font
 from openpyxl import utils
+from openpyxl.utils import get_column_letter
 
 import datetime
 from datetime import timedelta
@@ -12,9 +13,24 @@ import math
 import sys
 from pathlib import Path
 
-AG_NAME = "Annual Gathering 2024 - Kansas City, MO"
-START_DATE = datetime.datetime(2024, 7, 3)
-ROOMS_TO_SUPPRESS = ['Hallway outside Westin: Century Ballroom', 'Sheraton: Van Horn AB', 'Westin: Roanoke']
+AG_NAME = "Annual Gathering 2025 - Chicago, IL"
+START_DATE = datetime.datetime(2025, 7, 2)
+ROOMS_TO_SUPPRESS = ['Ask for location', 'Private Dining Room 7']
+INTERVAL = 15
+REQUIRED_COLUMNS = [
+    "Session Title",
+    "Session Start Date",
+    "Session Start Time",
+    "Session End Time",
+    "Room",
+    "Session Description"
+]
+FOOTER_TEXT = "Shop the Mensa Store and wear your brain on your sleeve with our exclusive licensed apparel."
+
+RED = "\033[91m"
+YELLOW = "\033[93m"
+BLUE = "\033[94m"
+RESET = "\033[0m"
 
 def smart_truncate(content, length=50, suffix=''):
     if len(content) <= length:
@@ -23,7 +39,30 @@ def smart_truncate(content, length=50, suffix=''):
         return ' '.join(content[:length+1].split(' ')[0:-1]) + suffix
 
 def create_workbook(path, inputfile, outputfile):
-    data = read_csv(path / inputfile)
+
+    print(f"{YELLOW}[INFO]{RESET} Creating AG Grid from {BLUE}{inputfile}{RESET}.")
+
+    if inputfile.lower().endswith(".csv"):
+        data = read_csv(path / inputfile)
+    elif inputfile.lower().endswith(".xls"):
+        data_raw = read_html(path / inputfile)
+        table_raw = data_raw[0]
+        table_header = table_raw.iloc[0]
+        data = table_raw.iloc[1:].copy()
+
+        data.columns = table_header
+        data.rename(columns={"Room Number": "Room"}, inplace=True)
+        data.reset_index(drop=True, inplace=True)
+    else:
+        print(f"{RED}[ERROR]{RESET} Unable to find a valid input file. Supported file types are CSV and XLS.")
+        exit()
+
+    columnsInData = [col.strip() for col in data.columns]
+    missingColumns = [col for col in REQUIRED_COLUMNS if col not in columnsInData]
+
+    if missingColumns:
+        print(f"{RED}[ERROR]{RESET} Input file is missing required columns: {BLUE}{', '.join(missingColumns)}{RESET}")
+        exit()
 
     dayList = data["Session Start Date"].tolist()
     dayList = sorted(list(set(dayList)))
@@ -113,7 +152,8 @@ def create_workbook(path, inputfile, outputfile):
         sheet.column_dimensions[utils.cell.get_column_letter(countOfRooms + 1)].width = 5
         sheet.row_dimensions[1].height = 15.75
         for room in range(1, countOfRooms):
-            sheet.column_dimensions[chr(65 + room)].width = 18.5
+            col_letter = get_column_letter(room + 1)
+            sheet.column_dimensions[col_letter].width = 18.5
 
         # set page margins
         sheet.page_margins = PageMargins(left=0.25, right=0.25, top=1, bottom=1, header=0.5, footer=0.5)
@@ -129,7 +169,7 @@ def create_workbook(path, inputfile, outputfile):
         sheet.oddHeader.center.font = "Calibri,Bold"
         sheet.oddHeader.center.color = "000000"
 
-        sheet.oddFooter.center.text = "Shop the Mensa Store and wear your brain on your sleeve with our exclusive licensed apparel."
+        sheet.oddFooter.center.text = FOOTER_TEXT
         sheet.oddFooter.center.size = 20
         sheet.oddFooter.center.font = "Calibri"
         sheet.oddFooter.center.color = "000000"
@@ -156,7 +196,8 @@ def create_workbook(path, inputfile, outputfile):
         rowi = rowi + 1
 
         # Create the times on left and right.
-        while nextTime.time() != datetime.datetime.strptime('00:30:00',  '%H:%M:%S').time():
+        timeInvervalRowCount = rowi + int((24*60)/INTERVAL)
+        while rowi != timeInvervalRowCount:
             sheet.cell(row=rowi, column=coli).value = nextTime.strftime('%#I:%M')
             sheet.cell(row=rowi, column=coli).font = fth
             sheet.cell(row=rowi, column=coli).alignment = ag
@@ -175,7 +216,7 @@ def create_workbook(path, inputfile, outputfile):
                 sheet.cell(row=rowi, column=coli).border = bdlr
                 sheet.cell(row=rowi, column=coli + countOfRooms).border = bdlr
 
-            nextTime = nextTime + timedelta(minutes=30)
+            nextTime = nextTime + timedelta(minutes=INTERVAL)
             rowi = rowi + 1
 
         # Create the room header
@@ -202,19 +243,28 @@ def create_workbook(path, inputfile, outputfile):
                     sesStartTime = datetime.datetime.strptime(dd["Session Start Time"][ind], "%I:%M %p")
                     sesEndTime = datetime.datetime.strptime(dd["Session End Time"][ind], "%I:%M %p")
 
-                    startInterval = ((sesStartTime - startTime).total_seconds() / 60) / 30
-                    endInterval = ((sesEndTime - sesStartTime).total_seconds() / 60) / 30
+                    startInterval = ((sesStartTime - startTime).total_seconds() / 60) / INTERVAL
+                    endInterval = ((sesEndTime - sesStartTime).total_seconds() / 60) / INTERVAL
 
                     rows = math.ceil((rowi + startInterval))
                     rowe = math.ceil((rows + endInterval)) - 1
 
-                    sheet.cell(row=rows, column=coli).value = smart_truncate(dd["Session Title"][ind])
-                    sheet.cell(row=rows, column=coli).font = ft
-                    sheet.cell(row=rows, column=coli).alignment = agc
-                    sheet.cell(row=rows, column=coli).border = bda
-                    sheet.merge_cells(start_row=rows, start_column=coli, end_row=rowe, end_column=coli)
+                    if "DO NOT PUBLISH" in dd["Session Title"][ind]:
+                        print(f"{YELLOW}[INFO]{RESET} {BLUE}{dd["Session Title"][ind]}{RESET} is not set to publish. Skipping.")
+                        continue
+
+                    try:
+                        sheet.cell(row=rows, column=coli).value = smart_truncate(dd["Session Title"][ind])
+                        sheet.cell(row=rows, column=coli).font = ft
+                        sheet.cell(row=rows, column=coli).alignment = agc
+                        sheet.cell(row=rows, column=coli).border = bda
+                        sheet.merge_cells(start_row=rows, start_column=coli, end_row=rowe, end_column=coli)
+                    except AttributeError as e:
+                        print(f"{RED}[ERROR]{RESET} Overlapping session schedule. {BLUE}{dd["Session Title"][ind]}{RESET} overaps with another session. Skipping.")
+                        pass
 
     workbook.save(path / outputfile)
+    print(f"{YELLOW}[INFO]{RESET} AG Grid has been saved here {BLUE}{outputfile}{RESET}.")
 
 schedgrid = sys.argv[-1]
 
