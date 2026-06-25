@@ -13,11 +13,11 @@ import math
 import sys
 from pathlib import Path
 
-AG_NAME = "Annual Gathering 2025 - Chicago, IL"
-START_DATE = datetime.datetime(2025, 7, 2)
-ROOMS_TO_SUPPRESS = ['Ask for location', 'Private Dining Room 7']
+AG_NAME = "Annual Gathering 2026 - Fort Worth, TX"
+START_DATE = datetime.datetime(2026, 7, 1)
+ROOMS_TO_SUPPRESS = ['Ask for location', 'Sundance 1']
 HIDE_ROOMS_WITH_NO_SESSIONS = 1
-INTERVAL = 15
+INTERVAL = 30
 REQUIRED_COLUMNS = [
     "Session Title",
     "Session Start Date",
@@ -26,7 +26,7 @@ REQUIRED_COLUMNS = [
     "Room",
     "Session Description"
 ]
-FOOTER_TEXT = "Shop the Mensa Store and wear your brain on your sleeve with our exclusive licensed apparel."
+FOOTER_TEXT = "Be sure to visit the Mensa Store to check out this year's AG merchandise"
 
 RED = "\033[91m"
 YELLOW = "\033[93m"
@@ -165,7 +165,7 @@ def create_workbook(path, inputfile, outputfile):
         sheet.print_area = 'A1:' + utils.cell.get_column_letter(countOfRooms + 1) + '36'
 
         # set the header and footer
-        sheet.oddHeader.center.text = AG_NAME + " \n " + sheetTitleAsDate.strftime("%A, %B %m, %Y") + " \n Program Grid"
+        sheet.oddHeader.center.text = AG_NAME + " \n " + sheetTitleAsDate.strftime("%A, %B %d, %Y") + " \n Program Grid"
         sheet.oddHeader.center.size = 20
         sheet.oddHeader.center.font = "Calibri,Bold"
         sheet.oddHeader.center.color = "000000"
@@ -254,6 +254,9 @@ def create_workbook(path, inputfile, outputfile):
                     rowe = math.ceil((rows + endInterval)) - 1
 
                     if "DO NOT PUBLISH" in dd["Session Title"][ind]:
+                        print(f"{YELLOW}[INFO]{RESET} {BLUE}{dd["Session Title"][ind]}{RESET} is not set to publish. Skipping.")
+                        continue
+                    elif "CANCELLED" in dd["Session Title"][ind]:
                         print(f"{YELLOW}[INFO]{RESET} {BLUE}{dd["Session Title"][ind]}{RESET} is not set to publish. Skipping.")
                         continue
 
